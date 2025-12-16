@@ -1,23 +1,25 @@
--- Xyloware Safe Dupe UI - Purple Glowing Version
--- AUTO SAFE DUPE ONLY - MODIFIED FOR CLOSEST SAFE
-
+---XYLOWARE UI
 -- Wait for services
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Anti-TP Code
-local RunService = game:GetService("RunService")
-local Character = game.Players.LocalPlayer.Character
-local RootPart = Character.HumanoidRootPart
+-- Anti-TP Code (only if character exists)
+if player.Character then
+    local RunService = game:GetService("RunService")
+    local Character = player.Character
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
+    
+    if RootPart then
+        RunService.PreSimulation:Connect(function()
+            RootPart.Anchored = false
+        end)
 
-RunService.PreSimulation:Connect(function()
-    RootPart.Anchored = false
-end)
-
-RunService.PostSimulation:Connect(function()
-    RootPart.Anchored = true
-end)
+        RunService.PostSimulation:Connect(function()
+            RootPart.Anchored = true
+        end)
+    end
+end
 
 -- Dupe Functions
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,14 +35,11 @@ local AutoSafeDupeEnabled = false
 local AutoSafeDupeThread = nil
 local SafeCooldown = false
 local SafeTargetWeapon = nil
+local glowAnimationEnabled = true
 
--- Notification helper
-local function SendNotification(title, text, duration)
-    StarterGui:SetCore("SendNotification", {
-        Title = title,
-        Text = text,
-        Duration = duration or 5
-    })
+-- Notification helper for F9 menu
+local function F9Notification(text)
+    print("📢 " .. text)
 end
 
 -- Function to reset all cooldowns
@@ -51,7 +50,7 @@ local function resetAllCooldowns()
         AutoSafeDupeThread = nil
     end
     AutoSafeDupeEnabled = false
-    SendNotification("Xyloware Safe Dupe", "All cooldowns reset!", 5)
+    F9Notification("All cooldowns reset!")
 end
 
 -- Function to count weapon copies
@@ -242,7 +241,7 @@ end
 -- Main safe dupe function
 local function performSafeDupe()
     if SafeCooldown then
-        SendNotification("Xyloware Safe", "Cooldown active!", 3)
+        F9Notification("Cooldown active!")
         return false, "Cooldown active"
     end
 
@@ -258,7 +257,7 @@ local function performSafeDupe()
 
     if not SafeTargetWeapon then
         SafeTargetWeapon = Tool.Name
-        SendNotification("Xyloware Safe", "Target set: " .. SafeTargetWeapon, 5)
+        F9Notification("Target set: " .. SafeTargetWeapon)
     end
 
     local Humanoid = Character:FindFirstChild("Humanoid")
@@ -342,14 +341,14 @@ local function startAutoSafeDupeMacro()
     end
     
     AutoSafeDupeEnabled = true
-    SendNotification("Xyloware Safe", "🔒 Auto Safe Dupe STARTED!", 3)
+    F9Notification("🔒 Auto Safe Dupe STARTED!")
 
     AutoSafeDupeThread = task.spawn(function()
         while AutoSafeDupeEnabled do
             local success, message = performSafeDupe()
             
             if success then
-                SendNotification("Xyloware Safe", message, 3)
+                F9Notification(message)
                 task.wait(1)
                 
                 -- Grab weapons after dupe
@@ -358,12 +357,12 @@ local function startAutoSafeDupeMacro()
                 -- Check and store in closest safe if exactly 2 copies
                 local safeSuccess, safeMsg = autoSafeWeapons()
                 if safeSuccess then
-                    SendNotification("Xyloware Safe", safeMsg, 3)
+                    F9Notification(safeMsg)
                 else
-                    SendNotification("Xyloware Safe", safeMsg, 3)
+                    F9Notification(safeMsg)
                 end
             else
-                SendNotification("Xyloware Safe", message, 3)
+                F9Notification(message)
             end
             
             if AutoSafeDupeEnabled then
@@ -380,7 +379,7 @@ local function stopAutoSafeDupeMacro()
         task.cancel(AutoSafeDupeThread)
         AutoSafeDupeThread = nil
     end
-    SendNotification("Xyloware Safe", "🛑 Auto Safe Dupe STOPPED!", 3)
+    F9Notification("🛑 Auto Safe Dupe STOPPED!")
 end
 
 -- Reset target weapon
@@ -388,23 +387,21 @@ local function resetTargetWeapon()
     if SafeTargetWeapon then
         local previousWeapon = SafeTargetWeapon
         SafeTargetWeapon = nil
-        SendNotification("Xyloware Safe", "Target reset: " .. previousWeapon, 5)
+        F9Notification("Target reset: " .. previousWeapon)
     else
-        SendNotification("Xyloware Safe", "No target to reset", 3)
+        F9Notification("No target to reset")
     end
 end
 
--- Teleport to closest safe (on top of it)
+-- Teleport to closest safe (on top of it) - SILENT VERSION
 local function teleportToClosestSafe()
     local Character = player.Character
     if not Character then
-        SendNotification("Xyloware Safe", "Character not found!", 3)
         return
     end
     
     local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
     if not HumanoidRootPart then
-        SendNotification("Xyloware Safe", "HumanoidRootPart not found!", 3)
         return
     end
     
@@ -416,13 +413,7 @@ local function teleportToClosestSafe()
     -- Find all safes in the map
     local map = workspace["1# Map"]
     if not map then
-        SendNotification("Xyloware Safe", "Map not found!", 3)
         return
-    end
-    
-    -- Function to get the top position of a part
-    local function getTopPosition(part)
-        return part.Position + Vector3.new(0, part.Size.Y/2, 0)
     end
     
     -- Look for models that are definitely safes by name
@@ -492,12 +483,12 @@ local function teleportToClosestSafe()
         -- Teleport to the top of the safe
         HumanoidRootPart.CFrame = teleportCFrame
         
-        SendNotification("Xyloware Safe", "Teleported on top of closest safe (" .. math.floor(shortestDistance) .. " studs away)", 3)
+        -- Silent teleport - no notification
     else
         -- Fallback to original coordinates
         local safeCFrame = CFrame.new(-185.01, 295.40, -994.84)
         HumanoidRootPart.CFrame = safeCFrame
-        SendNotification("Xyloware Safe", "No safe found, teleported to default location", 3)
+        -- Silent teleport - no notification
     end
 end
 
@@ -506,7 +497,7 @@ local function _fireproximityprompt(prompt)
     fireproximityprompt(prompt)
 end
 
--- Simple teleport function for MAX MONEY
+-- Simple teleport function for MAX MONEY - SILENT VERSION
 local function Teleport(cframe, instant)
     if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
         if instant then
@@ -519,7 +510,7 @@ end
 
 -- MAX MONEY Function (replaces manual stop)
 local function maxMoneyFunction()
-    SendNotification("MAX MONEY", "Starting MAX MONEY script...", 3)
+    F9Notification("Starting MAX MONEY script...")
     
     -- Check if player has Ice-Fruit Cupz
     local function GetFruitCup()
@@ -559,7 +550,7 @@ local function maxMoneyFunction()
     local Found, Cup = GetFruitCup()
     
     if Cup and Found then
-        SendNotification("MAX MONEY", "Selling existing fruit cup...", 3)
+        F9Notification("Selling existing fruit cup...")
         
         local OLDCFrame = player.Character.HumanoidRootPart.CFrame
         
@@ -578,12 +569,12 @@ local function maxMoneyFunction()
         end
         
         Teleport(OLDCFrame)
-        SendNotification("MAX MONEY", "Sold existing fruit cup!", 5)
+        F9Notification("Sold existing fruit cup!")
         return
     end
     
     -- If no cup, make one and sell
-    SendNotification("MAX MONEY", "Making and selling fruit cup...", 3)
+    F9Notification("Making and selling fruit cup...")
     
     local OLDCFrame = player.Character.HumanoidRootPart.CFrame
     
@@ -602,7 +593,7 @@ local function maxMoneyFunction()
     end
     
     if not Stove then
-        SendNotification("MAX MONEY", "No available stove found!", 5)
+        F9Notification("No available stove found!")
         return
     end
     
@@ -623,7 +614,7 @@ local function maxMoneyFunction()
     end
     
     if Check then
-        SendNotification("MAX MONEY", "Shop out of stock! Wait a few minutes.", 5)
+        F9Notification("Shop out of stock! Wait a few minutes.")
         return
     end
     
@@ -707,7 +698,7 @@ local function maxMoneyFunction()
     Teleport(OLDCFrame, true)
     task.wait(2)
     
-    SendNotification("MAX MONEY", "MAX MONEY process completed!", 5)
+    F9Notification("MAX MONEY process completed!")
 end
 
 -- Now create the Purple Glowing UI
@@ -894,11 +885,11 @@ local function createPurpleGlowingUI()
     end
 
     -- Create buttons
-    local button1, label1 = createGlowingButton("Auto", "🔒 AUTO SAFE DUPE", 0, false)
+    local button1, label1, frame1 = createGlowingButton("Auto", "🔒 AUTO SAFE DUPE", 0, false)
     local button2, label2, frame2 = createGlowingButton("ResetTarget", "🗑️ RESET TARGET", 60, true)
     local button3, label3, frame3 = createGlowingButton("Teleport", "📍 TP CLOSEST SAFE", 60, true)
-    local button4, label4 = createGlowingButton("MaxMoney", "💰 MAX MONEY", 120, false)
-    local button5, label5 = createGlowingButton("Reset", "🔄 RESET COOLDOWN", 180, false)
+    local button4, label4, frame4 = createGlowingButton("MaxMoney", "💰 MAX MONEY", 120, false)
+    local button5, label5, frame5 = createGlowingButton("Reset", "🔄 RESET COOLDOWN", 180, false)
 
     -- Position the half-width buttons side by side
     frame2.Position = UDim2.new(0, 0, 0, 60)
@@ -951,6 +942,7 @@ local function createPurpleGlowingUI()
     CloseCorner.Parent = CloseButton
 
     CloseButton.MouseButton1Click:Connect(function()
+        glowAnimationEnabled = false
         ScreenGui:Destroy()
     end)
 
@@ -992,7 +984,13 @@ local function createPurpleGlowingUI()
     local glowIntensity = 0
     local glowDirection = 1
 
-    RunService.RenderStepped:Connect(function(deltaTime)
+    local glowConnection
+    glowConnection = RunService.RenderStepped:Connect(function(deltaTime)
+        if not glowAnimationEnabled then
+            glowConnection:Disconnect()
+            return
+        end
+        
         glowIntensity = glowIntensity + (deltaTime * glowDirection * 2)
         
         if glowIntensity > 1 then
@@ -1025,10 +1023,10 @@ local function createPurpleGlowingUI()
         -- Update auto button text based on state
         if AutoSafeDupeEnabled then
             label1.Text = "🛑 STOP SAFE DUPE"
-            button1.Parent.BorderColor3 = Color3.fromRGB(255, 80, 80)
+            frame1.BorderColor3 = Color3.fromRGB(255, 80, 80)
         else
             label1.Text = "🔒 AUTO SAFE DUPE"
-            button1.Parent.BorderColor3 = Color3.fromRGB(80, 40, 150)
+            frame1.BorderColor3 = Color3.fromRGB(80, 40, 150)
         end
     end)
     
@@ -1038,9 +1036,10 @@ end
 -- Create the UI
 local success, ui = pcall(createPurpleGlowingUI)
 if success then
-    SendNotification("Safe Dupe", "🔒 Auto Safe Dupe Loaded", 5)
+    F9Notification("🔒 Auto Safe Dupe Loaded")
     print("✅ Safe Dupe UI loaded successfully!")
 else
-    SendNotification("Safe Dupe", "Failed to load UI: " .. tostring(ui), 5)
-    warn("❌ Failed to load UI:", ui)
+    local errMsg = tostring(ui)
+    F9Notification("Failed to load UI: " .. errMsg)
+    warn("❌ Failed to load UI:", errMsg)
 end
