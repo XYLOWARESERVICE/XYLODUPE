@@ -1,6 +1,4 @@
 -- Xyloware Safe Dupe UI - Purple Glowing Version
--- AUTO SAFE DUPE ONLY - MODIFIED FOR CLOSEST SAFE
--- MOBILE COMPATIBLE WITH MINIMIZE/TOGGLE FEATURE
 -- AUTO-SCALING BASED ON DEVICE
 -- Wait for services
 local Players = game:GetService("Players")
@@ -14,7 +12,6 @@ local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
 local GuiService = game:GetService("GuiService")
 
--- NEW ANTI-TP CODE - Pre/Post Simulation method
 -- Unanchors before physics (allows full movement), anchors after (anti-detection)
 local function setupNewAntiTP()
     local character = player.Character or player.CharacterAdded:Wait()
