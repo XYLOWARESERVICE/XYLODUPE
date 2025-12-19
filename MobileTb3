@@ -833,7 +833,16 @@ local function createMobileFriendlyUI()
     MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     MainFrame.BorderColor3 = Color3.fromRGB(40, 40, 40)
     MainFrame.BorderSizePixel = 2
-    MainFrame.Position = UDim2.new(0.5, -uiSize/2, 0.5, -uiSize/2)
+    
+    -- FIXED POSITION: Better mobile positioning
+    if isMobile then
+        -- For mobile, position it on the right side near the edge (not centered)
+        MainFrame.Position = UDim2.new(0.65, -uiSize/2, 0.1, -uiSize/2)
+    else
+        -- For desktop, keep it centered
+        MainFrame.Position = UDim2.new(0.5, -uiSize/2, 0.5, -uiSize/2)
+    end
+    
     MainFrame.Size = UDim2.new(0, uiSize, 0, uiSize)
     MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     MainFrame.Visible = false -- Start hidden
