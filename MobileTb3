@@ -1,6 +1,4 @@
--- Xyloware Safe Dupe UI - Purple Glowing Version
--- AUTO-SCALING BASED ON DEVICE
--- Wait for services
+-- Xyloware Safe Dupe
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
