@@ -126,7 +126,9 @@ print(" Text Scale:", deviceInfo.textScale .. "x")
 local InventoryEvent = ReplicatedStorage:FindFirstChild("Inventory")
 -- Variables
 local AutoSafeDupeEnabled = false
+local AutoBackpackDupeEnabled = false
 local AutoSafeDupeThread = nil
+local AutoBackpackDupeThread = nil
 local SafeCooldown = false
 local SafeTargetWeapon = nil
 local glowAnimationEnabled = true
@@ -143,7 +145,12 @@ local function resetAllCooldowns()
         task.cancel(AutoSafeDupeThread)
         AutoSafeDupeThread = nil
     end
+    if AutoBackpackDupeThread then
+        task.cancel(AutoBackpackDupeThread)
+        AutoBackpackDupeThread = nil
+    end
     AutoSafeDupeEnabled = false
+    AutoBackpackDupeEnabled = false
     F9Notification("All cooldowns reset!")
 end
 -- Function to count weapon copies
@@ -188,7 +195,7 @@ local function findWeaponToDupeForSafe()
     end
     return Character:FindFirstChildOfClass("Tool")
 end
--- Store weapons in closest safe (when you have exactly 2 copies)
+-- ORIGINAL: Store weapons in closest safe (when you have exactly 2 copies)
 local function autoSafeWeapons()
     if InventoryEvent and SafeTargetWeapon then
         local weaponCount = countWeaponCopies(SafeTargetWeapon)
@@ -325,7 +332,28 @@ local function autoSafeWeapons()
     end
     return false, "Safe remote not found"
 end
--- Main safe dupe function
+-- NEW: Store weapons in backpack (when you have exactly 2 copies)
+local function autoStoreWeaponsToBackpack()
+    if InventoryEvent and SafeTargetWeapon then
+        local weaponCount = countWeaponCopies(SafeTargetWeapon)
+       
+        if weaponCount == 2 then
+            local success = pcall(function()
+                ReplicatedStorage.BACKPACK_REMOTE:FireServer("Store", SafeTargetWeapon)
+            end)
+            
+            if success then
+                return true, "Stored " .. SafeTargetWeapon .. " in backpack (exactly 2 copies)"
+            else
+                return false, "Failed to store " .. SafeTargetWeapon .. " in backpack"
+            end
+        else
+            return false, "Not storing " .. SafeTargetWeapon .. " (Have " .. weaponCount .. " copies, need exactly 2)"
+        end
+    end
+    return false, "Inventory remote not found"
+end
+-- Main safe dupe function (used by both)
 local function performSafeDupe()
     if SafeCooldown then
         F9Notification("Cooldown active!")
@@ -406,7 +434,7 @@ local function autoGrabWeaponsForSafe()
         end
     end
 end
--- Start auto safe dupe
+-- Start auto safe dupe (ORIGINAL - stores to safe)
 local function startAutoSafeDupeMacro()
     if AutoSafeDupeEnabled then
         stopAutoSafeDupeMacro()
@@ -451,6 +479,52 @@ local function stopAutoSafeDupeMacro()
         AutoSafeDupeThread = nil
     end
     F9Notification("🛑 Auto Safe Dupe STOPPED!")
+end
+-- Start auto backpack dupe (NEW - stores to backpack)
+local function startAutoBackpackDupeMacro()
+    if AutoBackpackDupeEnabled then
+        stopAutoBackpackDupeMacro()
+        return
+    end
+   
+    AutoBackpackDupeEnabled = true
+    F9Notification("🎒 Auto Backpack Dupe STARTED!")
+    AutoBackpackDupeThread = task.spawn(function()
+        while AutoBackpackDupeEnabled do
+            local success, message = performSafeDupe()
+           
+            if success then
+                F9Notification(message)
+                task.wait(1)
+               
+                -- Grab weapons after dupe
+                autoGrabWeaponsForSafe()
+               
+                -- Check and store in backpack if exactly 2 copies
+                local storeSuccess, storeMsg = autoStoreWeaponsToBackpack()
+                if storeSuccess then
+                    F9Notification(storeMsg)
+                else
+                    F9Notification(storeMsg)
+                end
+            else
+                F9Notification(message)
+            end
+           
+            if AutoBackpackDupeEnabled then
+                task.wait(5)
+            end
+        end
+    end)
+end
+-- Stop auto backpack dupe
+local function stopAutoBackpackDupeMacro()
+    AutoBackpackDupeEnabled = false
+    if AutoBackpackDupeThread then
+        task.cancel(AutoBackpackDupeThread)
+        AutoBackpackDupeThread = nil
+    end
+    F9Notification("🛑 Auto Backpack Dupe STOPPED!")
 end
 -- Reset target weapon
 local function resetTargetWeapon()
@@ -925,12 +999,12 @@ local function createMobileFriendlyUI()
     ContentArea.Position = UDim2.new(0, 15, 0, 60 * deviceInfo.buttonScale)
     ContentArea.Size = UDim2.new(1, -30, 1, -(75 * deviceInfo.buttonScale))
     ContentArea.Parent = MainFrame
-    -- Buttons Container with scrolling for mobile
+    -- Buttons Container with scrolling for mobile (increased size for extra button)
     local ButtonsContainer = Instance.new("ScrollingFrame")
     ButtonsContainer.Name = "ButtonsContainer"
     ButtonsContainer.BackgroundTransparency = 1
     ButtonsContainer.Size = UDim2.new(1, 0, 1, 0)
-    ButtonsContainer.CanvasSize = UDim2.new(0, 0, 0, 240 * deviceInfo.buttonScale)
+    ButtonsContainer.CanvasSize = UDim2.new(0, 0, 0, 305 * deviceInfo.buttonScale) -- Increased for extra button
     ButtonsContainer.ScrollBarThickness = (isMobile and 6 or 4) * deviceInfo.buttonScale
     ButtonsContainer.ScrollBarImageColor3 = Color3.fromRGB(100, 50, 200)
     ButtonsContainer.Parent = ContentArea
@@ -1007,17 +1081,18 @@ local function createMobileFriendlyUI()
        
         return Button, ButtonLabel, ButtonFrame
     end
-    -- Create buttons
+    -- Create buttons (added Backpack Dupe button)
     local button1, label1, frame1 = createGlowingButton("Auto", "🔒 AUTO SAFE DUPE", 0, false)
-    local button2, label2, frame2 = createGlowingButton("ResetTarget", "🗑️ RESET TARGET", 65, true)
-    local button3, label3, frame3 = createGlowingButton("Teleport", "📍 TP CLOSEST SAFE", 65, true)
-    local button4, label4, frame4 = createGlowingButton("MaxMoney", "💰 MAX MONEY", 130, false)
-    local button5, label5, frame5 = createGlowingButton("Reset", "🔄 RESET COOLDOWN", 195, false)
+    local button1b, label1b, frame1b = createGlowingButton("Backpack", "🎒 BACKPACK DUPE", 65, false)
+    local button2, label2, frame2 = createGlowingButton("ResetTarget", "🗑️ RESET TARGET", 130, true)
+    local button3, label3, frame3 = createGlowingButton("Teleport", "📍 TP CLOSEST SAFE", 130, true)
+    local button4, label4, frame4 = createGlowingButton("MaxMoney", "💰 MAX MONEY", 195, false)
+    local button5, label5, frame5 = createGlowingButton("Reset", "🔄 RESET COOLDOWN", 260, false)
     -- Position the half-width buttons side by side
-    frame2.Position = UDim2.new(0, 0, 0, 65 * deviceInfo.buttonScale)
+    frame2.Position = UDim2.new(0, 0, 0, 130 * deviceInfo.buttonScale)
     frame2.Size = UDim2.new(0.48, 0, 0, buttonHeight)
    
-    frame3.Position = UDim2.new(0.52, 0, 0, 65 * deviceInfo.buttonScale)
+    frame3.Position = UDim2.new(0.52, 0, 0, 130 * deviceInfo.buttonScale)
     frame3.Size = UDim2.new(0.48, 0, 0, buttonHeight)
     
     -- Button functions
@@ -1030,6 +1105,18 @@ local function createMobileFriendlyUI()
             startAutoSafeDupeMacro()
             label1.Text = "🛑 STOP SAFE DUPE"
             frame1.BorderColor3 = Color3.fromRGB(255, 80, 80)
+        end
+    end)
+    
+    button1b.MouseButton1Click:Connect(function()
+        if AutoBackpackDupeEnabled then
+            stopAutoBackpackDupeMacro()
+            label1b.Text = "🎒 BACKPACK DUPE"
+            frame1b.BorderColor3 = Color3.fromRGB(80, 40, 150)
+        else
+            startAutoBackpackDupeMacro()
+            label1b.Text = "🛑 STOP BACKPACK DUPE"
+            frame1b.BorderColor3 = Color3.fromRGB(255, 80, 80)
         end
     end)
    
@@ -1190,6 +1277,7 @@ end
 local success, result = pcall(createMobileFriendlyUI)
 if success then
     F9Notification("🔒 Auto Safe Dupe Loaded")
+    F9Notification("🎒 Backpack Dupe Added")
     F9Notification("📱 Device: " .. deviceInfo.deviceType)
     F9Notification("🖼️ Screen: " .. deviceInfo.screenSize.X .. "x" .. deviceInfo.screenSize.Y)
     F9Notification("⚖️ UI Scale: " .. deviceInfo.uiScale .. "x")
