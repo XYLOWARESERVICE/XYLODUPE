@@ -131,7 +131,6 @@ local SafeCooldown = false
 local SafeTargetWeapon = nil
 local glowAnimationEnabled = true
 local uiVisible = true
-local isDraggingUI = false  -- Added: Track if UI is being dragged
 
 -- Notification helper for F9 menu
 local function F9Notification(text)
@@ -1021,16 +1020,6 @@ local function createMobileFriendlyUI()
     frame3.Position = UDim2.new(0.52, 0, 0, 65 * deviceInfo.buttonScale)
     frame3.Size = UDim2.new(0.48, 0, 0, buttonHeight)
     
-    -- Function to setup button input to prevent camera movement
-    local function setupButtonInput(button)
-        button.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch then
-                -- Briefly capture input to prevent camera movement
-                input:Capture()
-            end
-        end)
-    end
-    
     -- Button functions
     button1.MouseButton1Click:Connect(function()
         if AutoSafeDupeEnabled then
@@ -1060,13 +1049,6 @@ local function createMobileFriendlyUI()
         resetAllCooldowns()
     end)
     
-    -- Setup input capture for buttons
-    setupButtonInput(button1)
-    setupButtonInput(button2)
-    setupButtonInput(button3)
-    setupButtonInput(button4)
-    setupButtonInput(button5)
-    
     -- Close button in UI function
     CloseButton.MouseButton1Click:Connect(function()
         MainFrame.Visible = false
@@ -1074,8 +1056,6 @@ local function createMobileFriendlyUI()
         ToggleButton.TextColor3 = Color3.fromRGB(180, 100, 255)
         ToggleButton.BorderColor3 = Color3.fromRGB(80, 40, 150)
     end)
-    
-    setupButtonInput(CloseButton)
     
     -- Toggle button function
     local function toggleUI()
@@ -1092,32 +1072,19 @@ local function createMobileFriendlyUI()
         end
     end
     
-    setupButtonInput(ToggleButton)
     ToggleButton.MouseButton1Click:Connect(toggleUI)
     
-    -- Draggable functionality for main frame
+    -- Draggable functionality for main frame - SIMPLIFIED VERSION
     local dragging, dragInput, dragStart, startPos
-    local function update(input)
-        local delta = input.Position - dragStart
-        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-
     TopBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            isDraggingUI = true
             dragStart = input.Position
             startPos = MainFrame.Position
-            
-            -- Capture the input to prevent camera movement
-            if isMobile then
-                input:Capture()
-            end
             
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
-                    isDraggingUI = false
                 end
             end)
         end
@@ -1131,32 +1098,22 @@ local function createMobileFriendlyUI()
 
     UserInputService.InputChanged:Connect(function(input)
         if input == dragInput and dragging then
-            update(input)
-            -- Prevent camera movement on mobile
-            if isMobile then
-                input:Capture()
-            end
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
 
-    -- Draggable functionality for toggle button
+    -- Draggable functionality for toggle button - SIMPLIFIED VERSION
     local toggleDragging, toggleDragInput, toggleDragStart, toggleStartPos
     ToggleButton.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             toggleDragging = true
-            isDraggingUI = true
             toggleDragStart = input.Position
             toggleStartPos = ToggleButton.Position
-            
-            -- Capture the input to prevent camera movement
-            if isMobile then
-                input:Capture()
-            end
             
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     toggleDragging = false
-                    isDraggingUI = false
                 end
             end)
         end
@@ -1172,11 +1129,6 @@ local function createMobileFriendlyUI()
         if input == toggleDragInput and toggleDragging then
             local delta = input.Position - toggleDragStart
             ToggleButton.Position = UDim2.new(toggleStartPos.X.Scale, toggleStartPos.X.Offset + delta.X, toggleStartPos.Y.Scale, toggleStartPos.Y.Offset + delta.Y)
-            
-            -- Prevent camera movement on mobile
-            if isMobile then
-                input:Capture()
-            end
         end
     end)
     
