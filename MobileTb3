@@ -1,4 +1,4 @@
--- Xyloware Safe Dupe
+-- Xyloware Safe Dupe + Quick Buy (Combined)
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
 local GuiService = game:GetService("GuiService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 -- Unanchors before physics (allows full movement), anchors after (anti-detection)
 local function setupNewAntiTP()
@@ -125,8 +126,10 @@ local InventoryEvent = ReplicatedStorage:FindFirstChild("Inventory")
 -- Variables
 local AutoSafeDupeEnabled = false
 local AutoBackpackDupeEnabled = false
+local AutoTrunkDupeEnabled = false
 local AutoSafeDupeThread = nil
 local AutoBackpackDupeThread = nil
+local AutoTrunkDupeThread = nil
 local SafeCooldown = false
 local SafeTargetWeapon = nil
 local glowAnimationEnabled = true
@@ -147,8 +150,13 @@ local function resetAllCooldowns()
         task.cancel(AutoBackpackDupeThread)
         AutoBackpackDupeThread = nil
     end
+    if AutoTrunkDupeThread then
+        task.cancel(AutoTrunkDupeThread)
+        AutoTrunkDupeThread = nil
+    end
     AutoSafeDupeEnabled = false
     AutoBackpackDupeEnabled = false
+    AutoTrunkDupeEnabled = false
     F9Notification("All cooldowns reset!")
 end
 -- Function to count weapon copies
@@ -351,6 +359,32 @@ local function autoStoreWeaponsToBackpack()
     end
     return false, "Inventory remote not found"
 end
+-- NEW: Store weapons in car trunk (when you have exactly 2 copies) - FIXED WITH CORRECT REMOTE
+local function autoStoreWeaponsToTrunk()
+    if SafeTargetWeapon then
+        local weaponCount = countWeaponCopies(SafeTargetWeapon)
+       
+        if weaponCount == 2 then
+            local Event = ReplicatedStorage:FindFirstChild("TrunkStorage")
+            if not Event then
+                return false, "TrunkStorage remote not found"
+            end
+            
+            local success, err = pcall(function()
+                Event:FireServer("Store", SafeTargetWeapon)
+            end)
+            
+            if success then
+                return true, "Stored " .. SafeTargetWeapon .. " in car trunk"
+            else
+                return false, "Failed to store " .. SafeTargetWeapon .. " in trunk: " .. tostring(err)
+            end
+        else
+            return false, "Not storing " .. SafeTargetWeapon .. " in trunk (Have " .. weaponCount .. " copies, need exactly 2)"
+        end
+    end
+    return false, "No target weapon set"
+end
 -- Main safe dupe function (used by both)
 local function performSafeDupe()
     if SafeCooldown then
@@ -524,6 +558,52 @@ local function stopAutoBackpackDupeMacro()
     end
     F9Notification("🛑 Auto Backpack Dupe STOPPED!")
 end
+-- Start auto trunk dupe (NEW - stores to car trunk) - FIXED TIMING TO MATCH OTHERS
+local function startAutoTrunkDupeMacro()
+    if AutoTrunkDupeEnabled then
+        stopAutoTrunkDupeMacro()
+        return
+    end
+   
+    AutoTrunkDupeEnabled = true
+    F9Notification("🚗 Auto Trunk Dupe STARTED!")
+    AutoTrunkDupeThread = task.spawn(function()
+        while AutoTrunkDupeEnabled do
+            local success, message = performSafeDupe()
+           
+            if success then
+                F9Notification(message)
+                task.wait(1) -- SAME AS SAFE/BACKPACK DUPES
+               
+                -- Grab weapons after dupe
+                autoGrabWeaponsForSafe()
+               
+                -- Check and store in car trunk if exactly 2 copies
+                local trunkSuccess, trunkMsg = autoStoreWeaponsToTrunk()
+                if trunkSuccess then
+                    F9Notification(trunkMsg)
+                else
+                    F9Notification(trunkMsg)
+                end
+            else
+                F9Notification(message)
+            end
+           
+            if AutoTrunkDupeEnabled then
+                task.wait(5) -- SAME AS SAFE/BACKPACK DUPES
+            end
+        end
+    end)
+end
+-- Stop auto trunk dupe
+local function stopAutoTrunkDupeMacro()
+    AutoTrunkDupeEnabled = false
+    if AutoTrunkDupeThread then
+        task.cancel(AutoTrunkDupeThread)
+        AutoTrunkDupeThread = nil
+    end
+    F9Notification("🛑 Auto Trunk Dupe STOPPED!")
+end
 -- Reset target weapon
 local function resetTargetWeapon()
     if SafeTargetWeapon then
@@ -643,6 +723,114 @@ local function Teleport(cframe, instant)
         end
     end
 end
+
+-- ========== QUICK BUY SECTION ==========
+-- Get gun list from workspace
+local function getGunList()
+    local guns = {}
+    if Workspace:FindFirstChild("GUNS") then
+        for _, gunModel in pairs(Workspace.GUNS:GetChildren()) do
+            if gunModel:IsA("Model") then
+                local price = gunModel:FindFirstChild("Price", true)
+                if price then
+                    table.insert(guns, gunModel.Name)
+                end
+            end
+        end
+    end
+    table.sort(guns)
+    return guns
+end
+
+-- Purchase gun function
+local function purchaseGun(gunName)
+    if not Workspace:FindFirstChild("GUNS") or not Workspace.GUNS:FindFirstChild(gunName) then
+        print("❌ Gun not found:", gunName)
+        return false
+    end
+    
+    local gunModel = Workspace.GUNS[gunName]
+    local prompt = gunModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local price = gunModel:FindFirstChild("Price", true)
+    
+    if not prompt or not price then
+        print("❌ No prompt or price found")
+        return false
+    end
+    
+    -- Check gamepass
+    local gamepassId = gunModel:FindFirstChild("GamepassID", true)
+    if gamepassId and not MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamepassId.Value) then
+        print("❌ Don't own gamepass for:", gunName)
+        return false
+    end
+    
+    -- Check money
+    if player:FindFirstChild("stored") and player.stored:FindFirstChild("Money") then
+        if player.stored.Money.Value < price.Value then
+            local shortAmount = price.Value - player.stored.Money.Value
+            print("❌ Need $" .. shortAmount .. " more for " .. gunName)
+            return false
+        end
+    end
+    
+    local oldCFrame = player.Character and player.Character.HumanoidRootPart and player.Character.HumanoidRootPart.CFrame
+    
+    if not oldCFrame then
+        print("❌ Character not ready")
+        return false
+    end
+    
+    -- Teleport to gun
+    local part = prompt.Parent
+    local teleportCFrame
+    if part:IsA("BasePart") then
+        teleportCFrame = part.CFrame
+    elseif part:IsA("Model") and part.PrimaryPart then
+        teleportCFrame = part.PrimaryPart.CFrame
+    else
+        teleportCFrame = part:GetPivot()
+    end
+    
+    Teleport(teleportCFrame)
+    task.wait(0.4)
+    
+    -- Purchase gun
+    local itemReceived = false
+    local connection
+    
+    connection = player.Backpack.ChildAdded:Connect(function(child)
+        if child.Name == gunName then
+            itemReceived = true
+            if connection then
+                connection:Disconnect()
+            end
+        end
+    end)
+    
+    -- Timeout after 1.5 seconds
+    task.delay(1.5, function()
+        if connection then
+            connection:Disconnect()
+        end
+        itemReceived = true
+    end)
+    
+    -- Fire prompt until item received
+    while not itemReceived do
+        fireproximityprompt(prompt)
+        task.wait(0.1)
+    end
+    
+    task.wait(0.4)
+    
+    -- Return to original position
+    Teleport(oldCFrame)
+    
+    print("✅ Purchased:", gunName)
+    return true
+end
+
 -- MAX MONEY Function (replaces manual stop)
 local function maxMoneyFunction()
     F9Notification("Starting MAX MONEY script...")
@@ -835,6 +1023,7 @@ local function maxMoneyFunction()
    
     F9Notification("MAX MONEY process completed!")
 end
+
 -- Now create the Purple Glowing UI with toggle button and dynamic scaling
 local function createMobileFriendlyUI()
     -- Create main ScreenGui
@@ -997,16 +1186,143 @@ local function createMobileFriendlyUI()
     ContentArea.Position = UDim2.new(0, 15, 0, 60 * deviceInfo.buttonScale)
     ContentArea.Size = UDim2.new(1, -30, 1, -(75 * deviceInfo.buttonScale))
     ContentArea.Parent = MainFrame
-    -- Buttons Container with scrolling for mobile (increased size for extra button)
-    local ButtonsContainer = Instance.new("ScrollingFrame")
-    ButtonsContainer.Name = "ButtonsContainer"
-    ButtonsContainer.BackgroundTransparency = 1
-    ButtonsContainer.Size = UDim2.new(1, 0, 1, 0)
-    ButtonsContainer.CanvasSize = UDim2.new(0, 0, 0, 305 * deviceInfo.buttonScale) -- Increased for extra button
-    ButtonsContainer.ScrollBarThickness = (isMobile and 6 or 4) * deviceInfo.buttonScale
-    ButtonsContainer.ScrollBarImageColor3 = Color3.fromRGB(100, 50, 200)
-    ButtonsContainer.Parent = ContentArea
-    -- Function to create glowing button (mobile-friendly)
+    
+    -- Create tabs container
+    local TabsContainer = Instance.new("Frame")
+    TabsContainer.Name = "TabsContainer"
+    TabsContainer.BackgroundTransparency = 1
+    TabsContainer.Size = UDim2.new(1, 0, 0, 40 * deviceInfo.buttonScale)
+    TabsContainer.Parent = ContentArea
+    
+    -- Dupe Tab Button
+    local DupeTabButton = Instance.new("TextButton")
+    DupeTabButton.Name = "DupeTabButton"
+    DupeTabButton.Text = "🔒 DUPE"
+    DupeTabButton.Font = Enum.Font.GothamSemibold
+    DupeTabButton.TextSize = buttonTextSize
+    DupeTabButton.TextColor3 = Color3.fromRGB(180, 100, 255)
+    DupeTabButton.BackgroundColor3 = Color3.fromRGB(40, 30, 60)
+    DupeTabButton.BorderColor3 = Color3.fromRGB(80, 40, 150)
+    DupeTabButton.BorderSizePixel = 2
+    DupeTabButton.Position = UDim2.new(0, 0, 0, 0)
+    DupeTabButton.Size = UDim2.new(0.5, -2, 1, 0)
+    DupeTabButton.Parent = TabsContainer
+    
+    local DupeTabCorner = Instance.new("UICorner")
+    DupeTabCorner.CornerRadius = UDim.new(0, 6)
+    DupeTabCorner.Parent = DupeTabButton
+    
+    -- Quick Buy Tab Button
+    local QuickBuyTabButton = Instance.new("TextButton")
+    QuickBuyTabButton.Name = "QuickBuyTabButton"
+    QuickBuyTabButton.Text = "🚀 QUICK BUY"
+    QuickBuyTabButton.Font = Enum.Font.GothamSemibold
+    QuickBuyTabButton.TextSize = buttonTextSize
+    QuickBuyTabButton.TextColor3 = Color3.fromRGB(255, 140, 0)
+    QuickBuyTabButton.BackgroundColor3 = Color3.fromRGB(60, 40, 20)
+    QuickBuyTabButton.BorderColor3 = Color3.fromRGB(100, 60, 30)
+    QuickBuyTabButton.BorderSizePixel = 2
+    QuickBuyTabButton.Position = UDim2.new(0.5, 2, 0, 0)
+    QuickBuyTabButton.Size = UDim2.new(0.5, -2, 1, 0)
+    QuickBuyTabButton.Parent = TabsContainer
+    
+    local QuickBuyTabCorner = Instance.new("UICorner")
+    QuickBuyTabCorner.CornerRadius = UDim.new(0, 6)
+    QuickBuyTabCorner.Parent = QuickBuyTabButton
+    
+    -- Tab Content Area
+    local TabContentArea = Instance.new("Frame")
+    TabContentArea.Name = "TabContentArea"
+    TabContentArea.BackgroundTransparency = 1
+    TabContentArea.Position = UDim2.new(0, 0, 0, 45 * deviceInfo.buttonScale)
+    TabContentArea.Size = UDim2.new(1, 0, 1, -45 * deviceInfo.buttonScale)
+    TabContentArea.Parent = ContentArea
+    
+    -- ===== DUPE TAB CONTENT =====
+    local DupeContent = Instance.new("Frame")
+    DupeContent.Name = "DupeContent"
+    DupeContent.BackgroundTransparency = 1
+    DupeContent.Size = UDim2.new(1, 0, 1, 0)
+    DupeContent.Visible = true
+    DupeContent.Parent = TabContentArea
+    
+    -- Buttons Container with scrolling for mobile
+    local DupeButtonsContainer = Instance.new("ScrollingFrame")
+    DupeButtonsContainer.Name = "DupeButtonsContainer"
+    DupeButtonsContainer.BackgroundTransparency = 1
+    DupeButtonsContainer.Size = UDim2.new(1, 0, 1, 0)
+    DupeButtonsContainer.CanvasSize = UDim2.new(0, 0, 0, 370 * deviceInfo.buttonScale)
+    DupeButtonsContainer.ScrollBarThickness = (isMobile and 6 or 4) * deviceInfo.buttonScale
+    DupeButtonsContainer.ScrollBarImageColor3 = Color3.fromRGB(100, 50, 200)
+    DupeButtonsContainer.Parent = DupeContent
+    
+    -- ===== QUICK BUY TAB CONTENT =====
+    local QuickBuyContent = Instance.new("Frame")
+    QuickBuyContent.Name = "QuickBuyContent"
+    QuickBuyContent.BackgroundTransparency = 1
+    QuickBuyContent.Size = UDim2.new(1, 0, 1, 0)
+    QuickBuyContent.Visible = false
+    QuickBuyContent.Parent = TabContentArea
+    
+    -- Gun List Container
+    local GunListContainer = Instance.new("ScrollingFrame")
+    GunListContainer.Name = "GunListContainer"
+    GunListContainer.BackgroundTransparency = 1
+    GunListContainer.Size = UDim2.new(1, 0, 0.6, 0)
+    GunListContainer.CanvasSize = UDim2.new(0, 0, 0, 0) -- Will be updated
+    GunListContainer.ScrollBarThickness = 6 * deviceInfo.buttonScale
+    GunListContainer.ScrollBarImageColor3 = Color3.fromRGB(200, 100, 0)
+    GunListContainer.Parent = QuickBuyContent
+    
+    -- Purchase Button (Orange theme)
+    local PurchaseButton = Instance.new("TextButton")
+    PurchaseButton.Name = "PurchaseButton"
+    PurchaseButton.Text = "🚀 PURCHASE SELECTED"
+    PurchaseButton.Font = Enum.Font.GothamSemibold
+    PurchaseButton.TextSize = buttonTextSize
+    PurchaseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PurchaseButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+    PurchaseButton.BorderColor3 = Color3.fromRGB(120, 60, 30)
+    PurchaseButton.BorderSizePixel = 2
+    PurchaseButton.Position = UDim2.new(0, 0, 0.65, 0)
+    PurchaseButton.Size = UDim2.new(1, 0, 0, buttonHeight)
+    PurchaseButton.Parent = QuickBuyContent
+    
+    local PurchaseCorner = Instance.new("UICorner")
+    PurchaseCorner.CornerRadius = UDim.new(0, 6)
+    PurchaseCorner.Parent = PurchaseButton
+    
+    -- Refresh Button
+    local RefreshButton = Instance.new("TextButton")
+    RefreshButton.Name = "RefreshButton"
+    RefreshButton.Text = "🔄 REFRESH GUN LIST"
+    RefreshButton.Font = Enum.Font.GothamSemibold
+    RefreshButton.TextSize = buttonTextSize * 0.9
+    RefreshButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+    RefreshButton.BackgroundColor3 = Color3.fromRGB(60, 40, 20)
+    RefreshButton.BorderColor3 = Color3.fromRGB(100, 60, 30)
+    RefreshButton.BorderSizePixel = 2
+    RefreshButton.Position = UDim2.new(0, 0, 0.8, 0)
+    RefreshButton.Size = UDim2.new(1, 0, 0, buttonHeight * 0.8)
+    RefreshButton.Parent = QuickBuyContent
+    
+    local RefreshCorner = Instance.new("UICorner")
+    RefreshCorner.CornerRadius = UDim.new(0, 6)
+    RefreshCorner.Parent = RefreshButton
+    
+    -- Selected gun label
+    local SelectedLabel = Instance.new("TextLabel")
+    SelectedLabel.Name = "SelectedLabel"
+    SelectedLabel.Text = "Selected: None"
+    SelectedLabel.Font = Enum.Font.GothamMedium
+    SelectedLabel.TextSize = buttonTextSize * 0.9
+    SelectedLabel.TextColor3 = Color3.fromRGB(255, 180, 100)
+    SelectedLabel.BackgroundTransparency = 1
+    SelectedLabel.Position = UDim2.new(0, 0, 0.9, 0)
+    SelectedLabel.Size = UDim2.new(1, 0, 0, 30)
+    SelectedLabel.Parent = QuickBuyContent
+    
+    -- Function to create glowing button for dupe tab
     local function createGlowingButton(name, text, positionY, halfWidth)
         local scaledButtonHeight = buttonHeight
         local scaledTextSize = buttonTextSize
@@ -1025,7 +1341,7 @@ local function createMobileFriendlyUI()
             ButtonFrame.Size = UDim2.new(1, 0, 0, scaledButtonHeight)
         end
        
-        ButtonFrame.Parent = ButtonsContainer
+        ButtonFrame.Parent = DupeButtonsContainer
        
         local ButtonCorner = Instance.new("UICorner")
         ButtonCorner.CornerRadius = UDim.new(0, 6)
@@ -1079,18 +1395,21 @@ local function createMobileFriendlyUI()
        
         return Button, ButtonLabel, ButtonFrame
     end
-    -- Create buttons (added Backpack Dupe button)
+    
+    -- Create dupe buttons
     local button1, label1, frame1 = createGlowingButton("Auto", "🔒 AUTO SAFE DUPE", 0, false)
     local button1b, label1b, frame1b = createGlowingButton("Backpack", "🎒 BACKPACK DUPE", 65, false)
-    local button2, label2, frame2 = createGlowingButton("ResetTarget", "🗑️ RESET TARGET", 130, true)
-    local button3, label3, frame3 = createGlowingButton("Teleport", "📍 TP CLOSEST SAFE", 130, true)
-    local button4, label4, frame4 = createGlowingButton("MaxMoney", "💰 MAX MONEY", 195, false)
-    local button5, label5, frame5 = createGlowingButton("Reset", "🔄 RESET COOLDOWN", 260, false)
+    local button1c, label1c, frame1c = createGlowingButton("Trunk", "🚗 TRUNK DUPE", 130, false)
+    local button2, label2, frame2 = createGlowingButton("ResetTarget", "🗑️ RESET TARGET", 195, true)
+    local button3, label3, frame3 = createGlowingButton("Teleport", "📍 TP CLOSEST SAFE", 195, true)
+    local button4, label4, frame4 = createGlowingButton("MaxMoney", "💰 MAX MONEY", 260, false)
+    local button5, label5, frame5 = createGlowingButton("Reset", "🔄 RESET COOLDOWN", 325, false)
+    
     -- Position the half-width buttons side by side
-    frame2.Position = UDim2.new(0, 0, 0, 130 * deviceInfo.buttonScale)
+    frame2.Position = UDim2.new(0, 0, 0, 195 * deviceInfo.buttonScale)
     frame2.Size = UDim2.new(0.48, 0, 0, buttonHeight)
    
-    frame3.Position = UDim2.new(0.52, 0, 0, 130 * deviceInfo.buttonScale)
+    frame3.Position = UDim2.new(0.52, 0, 0, 195 * deviceInfo.buttonScale)
     frame3.Size = UDim2.new(0.48, 0, 0, buttonHeight)
     
     -- Button functions
@@ -1117,6 +1436,18 @@ local function createMobileFriendlyUI()
             frame1b.BorderColor3 = Color3.fromRGB(255, 80, 80)
         end
     end)
+    
+    button1c.MouseButton1Click:Connect(function()
+        if AutoTrunkDupeEnabled then
+            stopAutoTrunkDupeMacro()
+            label1c.Text = "🚗 TRUNK DUPE"
+            frame1c.BorderColor3 = Color3.fromRGB(80, 40, 150)
+        else
+            startAutoTrunkDupeMacro()
+            label1c.Text = "🛑 STOP TRUNK DUPE"
+            frame1c.BorderColor3 = Color3.fromRGB(255, 80, 80)
+        end
+    end)
    
     button2.MouseButton1Click:Connect(function()
         resetTargetWeapon()
@@ -1132,6 +1463,152 @@ local function createMobileFriendlyUI()
    
     button5.MouseButton1Click:Connect(function()
         resetAllCooldowns()
+    end)
+    
+    -- Quick Buy Variables
+    local selectedGun = nil
+    local gunButtons = {}
+    
+    -- Function to create gun button for Quick Buy tab
+    local function createGunButton(gunName, index)
+        local buttonFrame = Instance.new("Frame")
+        buttonFrame.Name = gunName .. "ButtonFrame"
+        buttonFrame.BackgroundColor3 = Color3.fromRGB(40, 30, 20)
+        buttonFrame.BorderColor3 = Color3.fromRGB(100, 60, 30)
+        buttonFrame.BorderSizePixel = 2
+        buttonFrame.Position = UDim2.new(0, 0, 0, (index - 1) * 40 * deviceInfo.buttonScale)
+        buttonFrame.Size = UDim2.new(1, 0, 0, 35 * deviceInfo.buttonScale)
+        buttonFrame.Parent = GunListContainer
+        
+        local buttonCorner = Instance.new("UICorner")
+        buttonCorner.CornerRadius = UDim.new(0, 4)
+        buttonCorner.Parent = buttonFrame
+        
+        local buttonLabel = Instance.new("TextLabel")
+        buttonLabel.Name = gunName .. "ButtonLabel"
+        buttonLabel.Text = "🔫 " .. gunName
+        buttonLabel.Font = Enum.Font.GothamMedium
+        buttonLabel.TextSize = buttonTextSize * 0.9
+        buttonLabel.TextColor3 = Color3.fromRGB(220, 180, 120)
+        buttonLabel.BackgroundTransparency = 1
+        buttonLabel.Size = UDim2.new(1, -10, 1, 0)
+        buttonLabel.Position = UDim2.new(0, 10, 0, 0)
+        buttonLabel.Parent = buttonFrame
+        
+        local button = Instance.new("TextButton")
+        button.Name = gunName .. "Button"
+        button.Text = ""
+        button.BackgroundTransparency = 1
+        button.Size = UDim2.new(1, 0, 1, 0)
+        button.Parent = buttonFrame
+        
+        -- Store reference
+        gunButtons[gunName] = {
+            frame = buttonFrame,
+            label = buttonLabel,
+            button = button
+        }
+        
+        button.MouseButton1Click:Connect(function()
+            -- Deselect all other buttons
+            for name, btnData in pairs(gunButtons) do
+                if name ~= gunName then
+                    btnData.frame.BackgroundColor3 = Color3.fromRGB(40, 30, 20)
+                    btnData.frame.BorderColor3 = Color3.fromRGB(100, 60, 30)
+                    btnData.label.Text = "🔫 " .. name
+                end
+            end
+            
+            -- Select this button
+            buttonFrame.BackgroundColor3 = Color3.fromRGB(60, 40, 20)
+            buttonFrame.BorderColor3 = Color3.fromRGB(255, 140, 0)
+            buttonLabel.Text = "✅ " .. gunName
+            
+            selectedGun = gunName
+            SelectedLabel.Text = "Selected: " .. gunName
+        end)
+    end
+    
+    -- Function to refresh gun list
+    local function refreshGunList()
+        -- Clear existing buttons
+        for name, btnData in pairs(gunButtons) do
+            btnData.frame:Destroy()
+        end
+        gunButtons = {}
+        
+        -- Get new gun list
+        local guns = getGunList()
+        
+        -- Update container size
+        GunListContainer.CanvasSize = UDim2.new(0, 0, 0, #guns * 40 * deviceInfo.buttonScale)
+        
+        -- Create buttons for each gun
+        for i, gunName in ipairs(guns) do
+            createGunButton(gunName, i)
+        end
+        
+        if #guns > 0 then
+            SelectedLabel.Text = "Found " .. #guns .. " guns. Select one."
+        else
+            SelectedLabel.Text = "No guns found in GUNS folder."
+        end
+        
+        selectedGun = nil
+    end
+    
+    -- Purchase button click
+    PurchaseButton.MouseButton1Click:Connect(function()
+        if not selectedGun then
+            F9Notification("❌ Please select a gun first")
+            return
+        end
+        
+        PurchaseButton.Text = "🔄 PURCHASING..."
+        PurchaseButton.BackgroundColor3 = Color3.fromRGB(150, 80, 0)
+        
+        local success = purchaseGun(selectedGun)
+        
+        if success then
+            PurchaseButton.Text = "✅ PURCHASE COMPLETE"
+            F9Notification("✅ Purchased: " .. selectedGun)
+            task.wait(1)
+        else
+            PurchaseButton.Text = "❌ PURCHASE FAILED"
+            task.wait(1)
+        end
+        
+        PurchaseButton.Text = "🚀 PURCHASE SELECTED"
+        PurchaseButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+    end)
+    
+    -- Refresh button click
+    RefreshButton.MouseButton1Click:Connect(function()
+        RefreshButton.Text = "🔄 REFRESHING..."
+        refreshGunList()
+        RefreshButton.Text = "🔄 REFRESH GUN LIST"
+    end)
+    
+    -- Tab switching
+    DupeTabButton.MouseButton1Click:Connect(function()
+        DupeContent.Visible = true
+        QuickBuyContent.Visible = false
+        DupeTabButton.BackgroundColor3 = Color3.fromRGB(40, 30, 60)
+        DupeTabButton.BorderColor3 = Color3.fromRGB(80, 40, 150)
+        QuickBuyTabButton.BackgroundColor3 = Color3.fromRGB(60, 40, 20)
+        QuickBuyTabButton.BorderColor3 = Color3.fromRGB(100, 60, 30)
+    end)
+    
+    QuickBuyTabButton.MouseButton1Click:Connect(function()
+        DupeContent.Visible = false
+        QuickBuyContent.Visible = true
+        DupeTabButton.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        DupeTabButton.BorderColor3 = Color3.fromRGB(80, 40, 150)
+        QuickBuyTabButton.BackgroundColor3 = Color3.fromRGB(80, 50, 25)
+        QuickBuyTabButton.BorderColor3 = Color3.fromRGB(255, 140, 0)
+        
+        -- Refresh gun list when switching to Quick Buy tab
+        refreshGunList()
     end)
     
     -- Close button in UI function
@@ -1276,10 +1753,13 @@ local success, result = pcall(createMobileFriendlyUI)
 if success then
     F9Notification("🔒 Auto Safe Dupe Loaded")
     F9Notification("🎒 Backpack Dupe Added")
+    F9Notification("🚗 Trunk Dupe Added")
+    F9Notification("🚀 Quick Buy System Added")
     F9Notification("📱 Device: " .. deviceInfo.deviceType)
     F9Notification("🖼️ Screen: " .. deviceInfo.screenSize.X .. "x" .. deviceInfo.screenSize.Y)
     F9Notification("⚖️ UI Scale: " .. deviceInfo.uiScale .. "x")
-    print("✅ Safe Dupe UI loaded successfully with auto-scaling!")
+    print("✅ Combined UI loaded successfully with auto-scaling!")
+    print("💡 Use the tabs to switch between Dupe and Quick Buy features!")
 else
     local errMsg = tostring(result)
     F9Notification("Failed to load UI: " .. errMsg)
