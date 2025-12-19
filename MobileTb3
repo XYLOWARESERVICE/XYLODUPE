@@ -1197,7 +1197,7 @@ local function createMobileFriendlyUI()
     -- Dupe Tab Button
     local DupeTabButton = Instance.new("TextButton")
     DupeTabButton.Name = "DupeTabButton"
-    DupeTabButton.Text = "🔒 DUPE"
+    DupeTabButton.Text = "🔒DUPE SECTION"
     DupeTabButton.Font = Enum.Font.GothamSemibold
     DupeTabButton.TextSize = buttonTextSize
     DupeTabButton.TextColor3 = Color3.fromRGB(180, 100, 255)
